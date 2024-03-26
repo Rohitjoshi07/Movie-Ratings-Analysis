@@ -91,7 +91,7 @@ Entries in cleaned df after remove outliers: 820295
 
 ## Dashboard
 
-Please find the AWS Quicksight dashboard [here](https://ap-south-1.quicksight.aws.amazon.com/sn/dashboards/ff09eb0c-a494-410a-9d6a-642307bac1e9/views/0762d5aa-84fd-4732-94b7-de93972da3f3?directory_alias=rohitjoshi09)
+Please find the AWS Quicksight dashboard [here](https://ap-south-1.quicksight.aws.amazon.com/sn/dashboards/ff09eb0c-a494-410a-9d6a-642307bac1e9/views/5a7ae82b-775a-48ce-9aa8-d32a38224cf6?directory_alias=rohitjoshi09)
 
 
 Sample Analysis Images:
