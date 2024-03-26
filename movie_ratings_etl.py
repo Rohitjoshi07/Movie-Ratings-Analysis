@@ -1,5 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
+from pyspark.sql.window import  Window
 import logging
 import json
 
@@ -179,6 +180,101 @@ class MovieRatingsETL:
         except Exception as e:
             logger.info(f"Encountered exception while processing data: {e}")
             raise Exception("Encountered exception in data transformation")
+
+
+    def eda(self, df, cleaned_df):
+        print(f"Total Entries in original data: {df.count()}")
+        print("*" * 50)
+        print(f"Schema of original data: {df.schema}")
+        print("*" * 50)
+
+        # Count the null values in the original df
+        for col_name in df.columns:
+            null_count = df.filter(col(col_name).isNull()).count()
+            print(f"Column '{col_name}' has {null_count} null values.")
+
+        print(f"Distinct status in original data: {df.select('status').distinct().count()}")
+        print("\n")
+        print(f"Distinct genres in original data: {df.select('genres').distinct().count()}")
+        print("\n")
+        print(f"Distinct production companies in original data: {df.select('production_companies').distinct().count()}")
+
+        print(f"Total entries in cleaned data: {cleaned_df.count()}")
+
+        print(f"Distinct status in cleaned data: {cleaned_df.select('status').distinct().count()}")
+        print("\n")
+        print(f"Distinct genres in cleaned data: {cleaned_df.select('genres').distinct().count()}")
+        print("\n")
+        print(
+            f"Distinct production companies in cleaned data: {cleaned_df.select('production_companies').distinct().count()}")
+
+        # Count the null values in the cleaned df
+        for col_name in cleaned_df.columns:
+            null_count = cleaned_df.filter(col(col_name).isNull()).count()
+            print(f"Column '{col_name}' has {null_count} null values.")
+
+        # genre level data
+        keywords = ["action", "thriller", "crime", "comedy", "drama", "romance", "horror", "adventure", "documentary",
+                    "tv movie", "fantasy", "mystery", "history", "science fiction", "family", "war", "western",
+                    "animation", "na"]
+        genre_df = cleaned_df.withColumn("genres", lower(col("genres"))) \
+            .withColumn("unique_genres", explode(split(col("genres"), ", "))).drop("genres").withColumn("genres", trim(
+            col("unique_genres"))).drop("unique_genres").filter(col("genres") \
+                                                                .isin(keywords))
+        yoy_genre_df = genre_df.groupBy("year", "genres").agg(count(col("id")).alias("total_movies"),
+                                                              sum(col("budget")).alias("total_budget"),
+                                                              sum(col("revenue")).alias("total_revenue"),
+                                                              corr(col("budget"), col("revenue")).alias(
+                                                                  "budget_revenue_correlation"))
+
+        mby_genre_df = genre_df.groupBy("month", "genres").agg(count(col("id")).alias("total_movies"),
+                                                               sum(col("budget")).alias("total_budget"),
+                                                               sum(col("revenue")).alias("total_revenue"),
+                                                               corr(col("budget"), col("revenue")).alias(
+                                                                   "budget_revenue_correlation"))
+
+        genre_agg_df = genre_df.groupBy("genres").agg(count(col("id")).alias("total_movies"),
+                                                      sum(col("budget")).alias("total_budget"),
+                                                      sum(col("revenue")).alias("total_revenue"),
+                                                      corr(col("budget"), col("revenue")).alias(
+                                                          "budget_revenue_correlation"))
+
+        # Yearly Growth by genre
+        yoy_genre_df.orderBy(col("total_movies").desc()).show(5, False)
+
+        # Genre based agg data
+        genre_agg_df.orderBy(col("total_budget").desc(), col("total_revenue").desc(),
+                             col("budget_revenue_correlation").desc()).show(truncate=False)
+
+        print(f"Rows in genre df: {genre_df.count()}")
+        print("*" * 50)
+        temp = genre_df.filter((col("budget") == float(0)) & (col("revenue") == float(0))).count()
+        print(f"Entries where budget and revenue is 0: {temp}")
+
+        # production company filtering
+        keywords = ["action", "thriller", "crime", "comedy", "drama", "romance", "horror", "adventure", "documentary",
+                    "tv movie", "fantasy", "mystery", "history", "science fiction", "family", "war", "western", "na",
+                    "", "animation"]
+
+        pc1 = cleaned_df.withColumn("pc", explode(split(col("production_companies"), ", "))).withColumn("pc", trim(
+            lower(col("pc")))).filter(~col("pc").isin(keywords)).filter(length(col("pc")) > 5).filter(
+            regexp_like(col("production_company"), '^[a-zA-Z]+(\.[a-zA-Z]+)*$'))
+
+        ws = Window.partitionBy("production_company").orderBy("year")
+        pc_ranked_df = pc1.withColumn("pc_rank", dense_rank().over(ws))
+        pc_ranked_df = pc_ranked_df.filter(col("pc_rank") == 1)
+        pc_distinct_df = pc_ranked_df.groupBy("year").agg(countDistinct("pc").alias("pc_distinct"))
+
+        window = Window.orderBy("year").rowsBetween(Window.unboundedPreceding, -1)
+
+        pc_distinct_df = pc_distinct_df.withColumn("prev_yr_pc_count", sum("pc_distinct").over(window)).withColumn(
+            "prev_yr_pc_count", when(col("prev_yr_pc_count").isNull(), 0).otherwise(col("prev_yr_pc_count")))
+
+        pc_yoy_df = pc_distinct_df.withColumn("pc_yoy_growth_count", col("pc_distinct") + col("prev_yr_pc_count"))
+
+        pc_yoy_df.orderBy(col("year").desc()).show(truncate=False)
+
+
 
 
 if __name__ == '__main__':
